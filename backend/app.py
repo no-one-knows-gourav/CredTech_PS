@@ -2,6 +2,7 @@
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 from fetch_and_score import fetch_and_compute_credit_scores, get_score_breakdown_data
+from unstructured.py import top_headlines
 import logging
 
 app = Flask(__name__)
@@ -151,7 +152,76 @@ def batch_analysis():
         })
     except Exception as e:
         logger.error(f"Error in batch analysis: {str(e)}")
-        return jsonify({'error': 'Batch analysis failed'}), 500
+        return jsonify({'error': 'Batch analysis failed'}), 500 
+
+@app.route('/api/news/<ticker>')
+def get_news(ticker):
+    """Get top news headlines with sentiment analysis for a ticker"""
+    try:
+        ticker = ticker.upper()
+        n = request.args.get('count', default=3, type=int)
+        
+        # Limit to reasonable number
+        n = min(max(n, 1), 10)
+        
+        logger.info(f"Fetching {n} headlines for {ticker}")
+        
+        headlines = top_headlines(ticker, n=n)
+        
+        return jsonify({
+            'ticker': ticker,
+            'headlines': headlines,
+            'count': len(headlines),
+            'success': True,
+            'timestamp': datetime.now().isoformat()
+        })
+        
+    except Exception as e:
+        logger.error(f"Error fetching news for {ticker}: {str(e)}")
+        return jsonify({
+            'error': f'Failed to fetch news for {ticker}: {str(e)}'
+        }), 500
+
+@app.route('/api/company-analysis-full/<ticker>')
+def company_analysis_full(ticker):
+    """Get complete analysis including credit scores and news"""
+    try:
+        ticker = ticker.upper()
+        logger.info(f"Full analysis for ticker: {ticker}")
+        
+        # Get credit scores
+        credit_results = fetch_and_compute_credit_scores([ticker])
+        
+        if ticker not in credit_results:
+            return jsonify({
+                'error': f'No financial data available for {ticker}'
+            }), 404
+        
+        # Get breakdown data
+        breakdown_data = get_score_breakdown_data()
+        
+        # Get news headlines
+        headlines = top_headlines(ticker, n=5)
+        
+        response_data = {
+            'ticker': ticker,
+            'credit_scores': credit_results[ticker],
+            'breakdown': breakdown_data,
+            'news': {
+                'headlines': headlines,
+                'count': len(headlines)
+            },
+            'success': True,
+            'timestamp': datetime.now().isoformat()
+        }
+        
+        return jsonify(response_data)
+        
+    except Exception as e:
+        logger.error(f"Error in full analysis for {ticker}: {str(e)}")
+        return jsonify({
+            'error': f'Failed to analyze {ticker}: {str(e)}'
+        }), 500
         
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5000)
